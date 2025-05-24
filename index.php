@@ -280,23 +280,36 @@
       <!-- Movie cards will be inserted here by JavaScript -->
     </section>
   </main>
+<?php include 'db.php'; ?>
+<script>
+  const movies = <?php
+    $sql = "SELECT id, title, genre FROM movies";
+    $result = $conn->query($sql);
+    $movies = [];
+
+    while ($row = $result->fetch_assoc()) {
+      $movies[] = $row;
+    }
+    echo json_encode($movies);
+  ?>;
+</script>
 
   <script>
-    // Mock movie data for demonstration
-    const movies = [
-      { id: 1, title: "Galaxy Raiders", genre: "Sci-Fi" },
-      { id: 2, title: "Midnight Escape", genre: "Thriller" },
-      { id: 3, title: "Love & Code", genre: "Romance" },
-      { id: 4, title: "Knights of Valor", genre: "Adventure" },
-      { id: 5, title: "City of Shadows", genre: "Mystery" },
-      { id: 6, title: "Jazz & Blues", genre: "Musical" },
-      { id: 7, title: "Echoes of Time", genre: "Drama" },
-      { id: 8, title: "Cybercore", genre: "Action" },
-      { id: 9, title: "Frozen Dawn", genre: "Fantasy" },
-      { id: 10, title: "Shadow Frontier", genre: "Western" },
-      { id: 11, title: "Neon Lights", genre: "Sci-Fi" },
-      { id: 12, title: "Silent Whisper", genre: "Horror" }
-    ];
+    // // Mock movie data for demonstration
+    // const movies = [
+    //   { id: 1, title: "Galaxy Raiders", genre: "Sci-Fi" },
+    //   { id: 2, title: "Midnight Escape", genre: "Thriller" },
+    //   { id: 3, title: "Love & Code", genre: "Romance" },
+    //   { id: 4, title: "Knights of Valor", genre: "Adventure" },
+    //   { id: 5, title: "City of Shadows", genre: "Mystery" },
+    //   { id: 6, title: "Jazz & Blues", genre: "Musical" },
+    //   { id: 7, title: "Echoes of Time", genre: "Drama" },
+    //   { id: 8, title: "Cybercore", genre: "Action" },
+    //   { id: 9, title: "Frozen Dawn", genre: "Fantasy" },
+    //   { id: 10, title: "Shadow Frontier", genre: "Western" },
+    //   { id: 11, title: "Neon Lights", genre: "Sci-Fi" },
+    //   { id: 12, title: "Silent Whisper", genre: "Horror" }
+    // ];
 
     const moviesGrid = document.getElementById('moviesGrid');
     const genreFilter = document.getElementById('genreFilter');
