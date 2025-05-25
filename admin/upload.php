@@ -1,44 +1,88 @@
 <?php
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
-session_start(); // Start the session
-
-// Check if the user is logged in
+session_start();
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
-    header('Location: index.php'); // Redirect to login page
+    header('Location: index.php');
     exit;
 }
 
-// Include database connection
 include '../db.php';
 
 // Initialize variables
+$id = null;
 $title = '';
 $genre = '';
-$video = '';
-$id = null;
+$videoPath = '';
+$subtitlePath = '';
 
-// Check if an ID is provided for editing
+$editing = false;
+
+// If editing, get existing movie data
 if (isset($_GET['id'])) {
-    $id = $_GET['id'];
-    $query = "SELECT * FROM movies WHERE id = ?";
-    $stmt = mysqli_prepare($conn, $query);
-    mysqli_stmt_bind_param($stmt, 'i', $id);
-    mysqli_stmt_execute($stmt);
-    $result = mysqli_stmt_get_result($stmt);
-    
-    if ($movie = mysqli_fetch_assoc($result)) {
+    $id = intval($_GET['id']);
+    $editing = true;
+    $stmt = $conn->prepare("SELECT * FROM movies WHERE id = ?");
+    $stmt->bind_param("i", $id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($result->num_rows > 0) {
+        $movie = $result->fetch_assoc();
         $title = $movie['title'];
         $genre = $movie['genre'];
-        $video = $movie['video'];
+        $videoPath = $movie['video'];
+        $subtitlePath = $movie['subtitle'];
     }
-    mysqli_stmt_close($stmt);
+    $stmt->close();
+}
+
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    // On form submission, override variables with POST data
+    $title = $_POST['title'] ?? '';
+    $genre = $_POST['genre'] ?? '';
+
+    if ($editing && isset($_POST['id'])) {
+        $id = intval($_POST['id']);
+    }
+
+    // If new video uploaded, delete old and upload new
+    if (isset($_FILES["video"]) && $_FILES["video"]["error"] == 0) {
+        if ($editing && file_exists($videoPath)) {
+            unlink($videoPath);
+        }
+        $videoPath = "uploads/videos/" . basename($_FILES["video"]["name"]);
+        move_uploaded_file($_FILES["video"]["tmp_name"], $videoPath);
+    }
+
+    // If new subtitle uploaded, delete old and upload new
+    if (isset($_FILES["subtitle"]) && $_FILES["subtitle"]["error"] == 0) {
+        if ($editing && !empty($subtitlePath) && file_exists($subtitlePath)) {
+            unlink($subtitlePath);
+        }
+        $subtitlePath = "uploads/subtitles/" . basename($_FILES["subtitle"]["name"]);
+        move_uploaded_file($_FILES["subtitle"]["tmp_name"], $subtitlePath);
+    }
+
+    if ($editing) {
+        $stmt = $conn->prepare("UPDATE movies SET title=?, genre=?, video=?, subtitle=? WHERE id=?");
+        $stmt->bind_param("ssssi", $title, $genre, $videoPath, $subtitlePath, $id);
+    } else {
+        $stmt = $conn->prepare("INSERT INTO movies (title, genre, video, subtitle) VALUES (?, ?, ?, ?)");
+        $stmt->bind_param("ssss", $title, $genre, $videoPath, $subtitlePath);
+    }
+
+    if ($stmt->execute()) {
+        $stmt->close();
+        $conn->close();
+        header("Location: monitor.php");
+        exit;
+    } else {
+        echo "Error saving movie: " . $stmt->error;
+    }
 }
 ?>
 
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -51,13 +95,16 @@ if (isset($_GET['id'])) {
       color: #e0e0e0;
       padding: 2rem;
     }
+
     .upload-container {
       background: #1f1f1f;
       padding: 2rem;
       border-radius: 8px;
       box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
     }
-    input[type="text"], input[type="file"] {
+
+    input[type="text"],
+    input[type="file"] {
       width: 100%;
       padding: 0.5rem;
       margin-bottom: 1rem;
@@ -66,6 +113,7 @@ if (isset($_GET['id'])) {
       background: #2a2a2a;
       color: #e0e0e0;
     }
+
     input[type="submit"] {
       background: #e50914;
       color: #fff;
@@ -75,163 +123,144 @@ if (isset($_GET['id'])) {
       cursor: pointer;
       transition: background 0.3s;
     }
+
     input[type="submit"]:hover {
       background: #d40813;
     }
   </style>
 </head>
+
 <body>
   <div class="upload-container">
     <h1><?php echo $id ? 'Edit Movie' : 'Upload Movie'; ?></h1>
-    <div class="upload-container">
-  <form id="uploadForm" enctype="multipart/form-data">
-    <input type="hidden" name="id" id="movieId" value="<?php echo $id; ?>" />
-    <input type="text" name="title" id="title" placeholder="Movie Title" value="<?php echo htmlspecialchars($title); ?>" required />
-    <input type="text" name="genre" id="genre" placeholder="Movie Genre" value="<?php echo htmlspecialchars($genre); ?>" required />
-    <input type="file" name="video" id="videoFile" />
-    <input type="submit" value="<?php echo $id ? 'Update Movie' : 'Upload Movie'; ?>" />
-  </form>
+    <form id="uploadForm" enctype="multipart/form-data">
+      <input type="hidden" name="id" id="movieId" value="<?php echo $id; ?>" />
+      <input type="text" name="title" id="title" placeholder="Movie Title" value="<?php echo htmlspecialchars($title); ?>" required />
+      <input type="text" name="genre" id="genre" placeholder="Movie Genre" value="<?php echo htmlspecialchars($genre); ?>" required />
+      <input type="file" name="video" id="videoFile" />
+      <input type="file" name="subtitle" id="subtitleFile" />
+      <input type="submit" value="<?php echo $id ? 'Update Movie' : 'Upload Movie'; ?>" />
+    </form>
 
-  <div id="messages" style="margin-top:1rem; font-weight: bold;"></div>
-  <progress id="progressBar" value="0" max="100" style="width: 100%; display:none;"></progress>
-</div>
-
-<script>
-const uploadForm = document.getElementById('uploadForm');
-const progressBar = document.getElementById('progressBar');
-const messages = document.getElementById('messages');
-const MAX_CHUNK_SIZE = 200 * 1024 * 1024; // 200MB
-
-uploadForm.addEventListener('submit', async function(e) {
-  e.preventDefault();
-
-  const title = document.getElementById('title').value.trim();
-  const genre = document.getElementById('genre').value.trim();
-  const videoInput = document.getElementById('videoFile');
-  const file = videoInput.files[0];
-  const id = document.getElementById('movieId').value;
-
-  if (!title || !genre) {
-    alert('Please enter title and genre');
-    return;
-  }
-if (!file && !id) {
-  alert('Please select a video file');
-  return;
-}
-
-if (!file && id) {
-  // Editing without uploading new video
-  messages.innerHTML = 'Updating movie details...';
-
-  const formData = new FormData();
-  formData.append('id', id);
-  formData.append('title', title);
-  formData.append('genre', genre);
-
-  const response = await fetch('upload_handle.php', {
-    method: 'POST',
-    body: formData,
-  });
-
-  const result = await response.json();
-  if (result.success) {
-    messages.innerHTML = result.message;
-  } else {
-    messages.innerHTML = 'Update failed: ' + (result.error || 'Unknown error');
-  }
-
-  return;
-}
-
-
-  messages.innerHTML = '1) Checking the file if its size is big or not...';
-  progressBar.style.display = 'none';
-  progressBar.value = 0;
-
-  if (file.size <= MAX_CHUNK_SIZE) {
-    // Small file - upload directly
-    messages.innerHTML = '2) Uploading the file...';
-    progressBar.style.display = 'block';
-
-    const formData = new FormData();
-    formData.append('id', id);
-    formData.append('title', title);
-    formData.append('genre', genre);
-    formData.append('video', file);
-
-    try {
-      const response = await fetch('upload_handle.php', {
-        method: 'POST',
-        body: formData,
-      });
-
-      const result = await response.json();
-      if (result.success) {
-        progressBar.value = 100;
-        messages.innerHTML = '3) Upload success!';
-      } else {
-        messages.innerHTML = 'Upload failed: ' + (result.error || 'Unknown error');
-      }
-    } catch (err) {
-      messages.innerHTML = 'Upload error: ' + err.message;
-    }
-  } else {
-    // Large file - chunked upload
-    messages.innerHTML = '2) Breaking the file into chunks...';
-    progressBar.style.display = 'block';
-
-    const totalChunks = Math.ceil(file.size / MAX_CHUNK_SIZE);
-    let uploadedChunks = 0;
-    const fileName = file.name;
-
-    async function uploadChunk(chunkNumber) {
-      const start = (chunkNumber - 1) * MAX_CHUNK_SIZE;
-      const end = Math.min(file.size, start + MAX_CHUNK_SIZE);
-      const chunk = file.slice(start, end);
-
-      messages.innerHTML = `3) Uploading chunk ${chunkNumber} of ${totalChunks}...`;
-
-      const chunkFormData = new FormData();
-      chunkFormData.append('id', id);
-      chunkFormData.append('title', title);
-      chunkFormData.append('genre', genre);
-      chunkFormData.append('video', chunk);
-      chunkFormData.append('chunkNumber', chunkNumber);
-      chunkFormData.append('totalChunks', totalChunks);
-      chunkFormData.append('fileName', fileName);
-
-      const response = await fetch('upload_handle.php', {
-        method: 'POST',
-        body: chunkFormData,
-      });
-
-      const result = await response.json();
-      if (result.success) {
-        uploadedChunks++;
-        progressBar.value = (uploadedChunks / totalChunks) * 100;
-
-        if (chunkNumber < totalChunks) {
-          await uploadChunk(chunkNumber + 1);
-        } else {
-          messages.innerHTML = `6) All chunks uploaded successfully.<br>7) Merging the chunks...`;
-          // The server merges on last chunk upload, so just wait for success message
-          messages.innerHTML = `8) Upload successful!`;
-        }
-      } else {
-        throw new Error(result.error || 'Chunk upload failed');
-      }
-    }
-
-    try {
-      await uploadChunk(1);
-    } catch (err) {
-      messages.innerHTML = 'Upload error: ' + err.message;
-    }
-  }
-});
-</script>
-
+    <div id="messages" style="margin-top:1rem; font-weight: bold;"></div>
+    <progress id="progressBar" value="0" max="100" style="width: 100%; display:none;"></progress>
   </div>
 </body>
+
 </html>
+
+  <script>
+    const uploadForm = document.getElementById('uploadForm');
+    const progressBar = document.getElementById('progressBar');
+    const messages = document.getElementById('messages');
+
+    const MAX_CHUNK_SIZE = 200 * 1024 * 1024;
+
+    function setStatus(text, percent = null) {
+      messages.textContent = text;
+      if (percent !== null) {
+        progressBar.style.display = 'block';
+        progressBar.value = percent;
+      }
+    }
+
+    uploadForm.addEventListener('submit', async function (e) {
+      e.preventDefault();
+
+      const title = document.getElementById('title').value.trim();
+      const genre = document.getElementById('genre').value.trim();
+      const videoInput = document.getElementById('videoFile');
+      const subtitleInput = document.getElementById('subtitleFile');
+      const id = document.getElementById('movieId').value;
+
+      const videoFile = videoInput.files[0];
+      const subtitleFile = subtitleInput.files[0];
+
+      if (!title || !genre) {
+        setStatus('Title and genre are required.');
+        return;
+      }
+
+      // If no video, just upload data + subtitle
+      if (!videoFile) {
+        const formData = new FormData();
+        formData.append('title', title);
+        formData.append('genre', genre);
+        if (id) formData.append('id', id);
+        if (subtitleFile) formData.append('subtitle', subtitleFile);
+
+        setStatus("Uploading metadata and subtitle...");
+        const response = await fetch('upload_handle.php', {
+          method: 'POST',
+          body: formData,
+        });
+        const result = await response.json();
+        setStatus(result.message || result.error || 'Upload complete!');
+        return;
+      }
+
+      // Start chunked upload
+      const totalChunks = Math.ceil(videoFile.size / MAX_CHUNK_SIZE);
+      const fileName = videoFile.name;
+
+      setStatus("Calculating chunks...", 0);
+
+      for (let chunkNumber = 1; chunkNumber <= totalChunks; chunkNumber++) {
+        const start = (chunkNumber - 1) * MAX_CHUNK_SIZE;
+        const end = Math.min(start + MAX_CHUNK_SIZE, videoFile.size);
+        const chunk = videoFile.slice(start, end);
+
+        const formData = new FormData();
+        formData.append('title', title);
+        formData.append('genre', genre);
+        formData.append('fileName', fileName);
+        formData.append('chunkNumber', chunkNumber);
+        formData.append('totalChunks', totalChunks);
+        formData.append('video', chunk);
+        if (id) formData.append('id', id);
+        if (subtitleFile && chunkNumber === totalChunks) {
+          formData.append('subtitle', subtitleFile);
+        }
+
+        setStatus(`Uploading chunk ${chunkNumber} of ${totalChunks}...`, Math.round((chunkNumber / totalChunks) * 80));
+
+        const response = await fetch('upload_handle.php', {
+          method: 'POST',
+          body: formData,
+        });
+
+        const result = await response.json();
+        if (!response.ok || result.error) {
+          setStatus(result.error || 'Error uploading chunk.');
+          return;
+        }
+      }
+
+      setStatus("Merging chunks on server...", 90);
+
+      const mergeForm = new FormData();
+      mergeForm.append('fileName', fileName);
+      mergeForm.append('finalize', true); // optional flag for backend to finalize
+
+      await fetch('merge_chunks.php', {
+        method: 'POST',
+        body: mergeForm
+      });
+
+      if (subtitleFile) {
+        setStatus("Uploading subtitle...", 95);
+        const subtitleForm = new FormData();
+        subtitleForm.append('subtitle', subtitleFile);
+        subtitleForm.append('fileName', fileName);
+        if (id) subtitleForm.append('id', id);
+
+        await fetch('upload_subtitle.php', {
+          method: 'POST',
+          body: subtitleForm
+        });
+        setStatus("Subtitle upload complete!", 98);
+      }
+
+      setStatus("✅ Upload Success!", 100);
+    });
+  </script>

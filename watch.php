@@ -19,6 +19,7 @@ $movie = $result->fetch_assoc();
 ?>
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <title><?php echo htmlspecialchars($movie['title']); ?> - StreamFlix</title>
@@ -35,9 +36,11 @@ $movie = $result->fetch_assoc();
       justify-content: center;
       min-height: 100vh;
     }
+
     h1 {
       margin-bottom: 1rem;
     }
+
     video {
       max-width: 90%;
       border-radius: 12px;
@@ -45,11 +48,16 @@ $movie = $result->fetch_assoc();
     }
   </style>
 </head>
+
 <body>
   <h1><?php echo htmlspecialchars($movie['title']); ?></h1>
   <video controls>
     <source src="ENGLISH/<?php echo htmlspecialchars($movie['video']); ?>" type="video/mp4">
+    <track src="ENGLISH/<?php echo htmlspecialchars($movie['subtitle']); ?>" kind="subtitles" srclang="en"
+      label="English">
     Your browser does not support the video tag.
   </video>
+
 </body>
+
 </html>
