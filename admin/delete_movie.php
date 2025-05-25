@@ -1,70 +1,50 @@
 <?php
-session_start();
+session_start(); // Start the session
+
+// Check if the user is logged in
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
-    header('Location: index.php');
+    header('Location: index.php'); // Redirect to login page
     exit;
 }
 
+// Include database connection
 include '../db.php';
 
-$editing = false;
-$movie = [
-    'title' => '',
-    'genre' => '',
-    'video' => '',
-    'subtitle' => '',
-];
+// Check if an ID is provided for deletion
+if (isset($_POST['id'])) {
+    $id = $_POST['id'];
 
-if (isset($_GET['id'])) {
-    $editing = true;
-    $id = $_GET['id'];
-    $stmt = $conn->prepare("SELECT * FROM movies WHERE id = ?");
-    $stmt->bind_param("i", $id);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $movie = $result->fetch_assoc();
-    $stmt->close();
-}
+    // Fetch the video path to delete the file
+    $query = "SELECT video FROM movies WHERE id = ?";
+    $stmt = mysqli_prepare($conn, $query);
+    mysqli_stmt_bind_param($stmt, 'i', $id);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    $movie = mysqli_fetch_assoc($result);
+    $videoPath = $movie['video'];
 
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    $title = $_POST['title'];
-    $genre = $_POST['genre'];
+    // Delete the movie from the database
+    $query = "DELETE FROM movies WHERE id = ?";
+    $stmt = mysqli_prepare($conn, $query);
+    mysqli_stmt_bind_param($stmt, 'i', $id);
+    mysqli_stmt_execute($stmt);
 
-    $videoPath = $editing ? $movie['video'] : '';
-    $subtitlePath = $editing ? $movie['subtitle'] : '';
-
-    if (isset($_FILES["video"]) && $_FILES["video"]["error"] == 0) {
-        if ($editing && file_exists($movie['video'])) {
-            unlink($movie['video']);
+    // Check for successful deletion
+    if (mysqli_stmt_affected_rows($stmt) > 0) {
+        // Delete the video file from the server
+        if (file_exists($videoPath)) {
+            unlink($videoPath); // Delete the file
         }
-        $videoPath = "uploads/videos/" . basename($_FILES["video"]["name"]);
-        move_uploaded_file($_FILES["video"]["tmp_name"], $videoPath);
-    }
-
-    if (isset($_FILES["subtitle"]) && $_FILES["subtitle"]["error"] == 0) {
-        if ($editing && !empty($movie['subtitle']) && file_exists($movie['subtitle'])) {
-            unlink($movie['subtitle']);
-        }
-        $subtitlePath = "uploads/subtitles/" . basename($_FILES["subtitle"]["name"]);
-        move_uploaded_file($_FILES["subtitle"]["tmp_name"], $subtitlePath);
-    }
-
-    if ($editing) {
-        $stmt = $conn->prepare("UPDATE movies SET title=?, genre=?, video=?, subtitle=? WHERE id=?");
-        $stmt->bind_param("ssssi", $title, $genre, $videoPath, $subtitlePath, $id);
+        echo "Movie deleted successfully!";
     } else {
-        $stmt = $conn->prepare("INSERT INTO movies (title, genre, video, subtitle) VALUES (?, ?, ?, ?)");
-        $stmt->bind_param("ssss", $title, $genre, $videoPath, $subtitlePath);
+        echo "Error deleting movie.";
     }
 
-    if ($stmt->execute()) {
-        header("Location: monitor.php");
-        exit;
-    } else {
-        echo "Error saving movie.";
-    }
-
-    $stmt->close();
-    $conn->close();
+    mysqli_stmt_close($stmt);
+    mysqli_close($conn);
+} else {
+    echo "No movie ID provided for deletion.";
 }
+header('Location: monitor.php');
+
 ?>
