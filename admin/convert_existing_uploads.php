@@ -68,14 +68,14 @@ if ($step === 'db') {
         $subtitle = $row['subtitle'];
         $newVideo = $video;
         $newSubtitle = $subtitle;
-        if (preg_match('/([^\/\\]+)\.mp4$/i', $video, $m)) {
+        if (!empty($video) && preg_match('/([^\/\\]+)\.mp4$/i', $video, $m)) {
             $base = $m[1];
             $hlsPath = 'uploads/' . $base . '_hls/index.m3u8';
             if (file_exists($uploadDir . $base . '_hls' . DIRECTORY_SEPARATOR . 'index.m3u8')) {
                 $newVideo = $hlsPath;
             }
         }
-        if (preg_match('/\.srt$/i', $subtitle)) {
+        if (!empty($subtitle) && preg_match('/\.srt$/i', $subtitle)) {
             $newSubtitle = preg_replace('/\.srt$/i', '.vtt', $subtitle);
             if (!file_exists($uploadDir . basename($newSubtitle))) {
                 $newSubtitle = $subtitle; // fallback if vtt not found
