@@ -154,7 +154,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     const progressBar = document.getElementById('progressBar');
     const messages = document.getElementById('messages');
 
-    const MAX_CHUNK_SIZE = 200 * 1024 * 1024;
+    const MAX_CHUNK_SIZE = 3 * 1024 * 1024;
 
     function setStatus(text, percent = null) {
       messages.textContent = text;
