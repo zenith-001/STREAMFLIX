@@ -68,19 +68,35 @@ if ($step === 'db') {
         $subtitle = $row['subtitle'];
         $newVideo = $video;
         $newSubtitle = $subtitle;
-        if (!empty($video) && preg_match('/([^\/\\]+)\.mp4$/i', $video, $m)) {
-            $base = $m[1];
-            $hlsPath = 'uploads/' . $base . '_hls/index.m3u8';
-            if (file_exists($uploadDir . $base . '_hls' . DIRECTORY_SEPARATOR . 'index.m3u8')) {
-                $newVideo = $hlsPath;
+
+        // --- Video (HLS) update ---
+        if (!empty($video)) {
+            $filename = basename($video);
+            $base = pathinfo($filename, PATHINFO_FILENAME);
+            $hlsDir = $uploadDir . $base . '_hls' . DIRECTORY_SEPARATOR;
+            $m3u8 = $hlsDir . 'index.m3u8';
+            if (file_exists($m3u8)) {
+                $newVideo = 'uploads/' . $base . '_hls/index.m3u8';
+            } else {
+                log_convert("SKIP: No HLS for id=$id video=$video");
             }
         }
-        if (!empty($subtitle) && preg_match('/\.srt$/i', $subtitle)) {
-            $newSubtitle = preg_replace('/\.srt$/i', '.vtt', $subtitle);
-            if (!file_exists($uploadDir . basename($newSubtitle))) {
-                $newSubtitle = $subtitle; // fallback if vtt not found
+
+        // --- Subtitle (VTT) update ---
+        if (!empty($subtitle)) {
+            $subtitleFile = basename($subtitle);
+            $vtt = preg_replace('/\.srt$/i', '.vtt', $subtitleFile);
+            $vttPath = $uploadDir . $vtt;
+            if (file_exists($vttPath)) {
+                $newSubtitle = $vtt;
+            } else {
+                // If VTT does not exist, set to empty (no captions)
+                $newSubtitle = '';
+                log_convert("SKIP: No VTT for id=$id subtitle=$subtitle");
             }
         }
+
+        // --- Update DB if changed ---
         if ($newVideo !== $video || $newSubtitle !== $subtitle) {
             $stmt = $conn->prepare("UPDATE movies SET video=?, subtitle=? WHERE id=?");
             $stmt->bind_param('ssi', $newVideo, $newSubtitle, $id);
