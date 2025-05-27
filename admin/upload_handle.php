@@ -249,6 +249,7 @@ log_upload_event("SUCCESS: Uploaded movie '$title' (ID: $id)");
 echo json_encode(['success' => true, 'message' => 'Upload complete']);
 exit;
 
+// Helper: log to uploads/log.txt
 function log_upload_event($message) {
     $logFile = __DIR__ . '/../uploads/log.txt';
     $date = date('Y-m-d H:i:s');
