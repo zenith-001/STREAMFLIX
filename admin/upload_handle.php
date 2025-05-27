@@ -29,6 +29,7 @@ $fileName = $_POST['fileName'] ?? null;
 
 // Basic validation
 if (!$title || !$genre) {
+    log_upload_event("ERROR: Title or genre missing for upload");
     http_response_code(400);
     echo json_encode(['error' => 'Title and genre required']);
     exit;
@@ -40,9 +41,12 @@ if (isset($_FILES['subtitle']) && $_FILES['subtitle']['error'] === UPLOAD_ERR_OK
     $subtitleFile = $_FILES['subtitle'];
     $subtitlePath = $uploadDir . uniqid() . '_' . basename($subtitleFile['name']);
     if (!move_uploaded_file($subtitleFile['tmp_name'], $subtitlePath)) {
+        log_upload_event("ERROR: Failed to move subtitle file for '$title' (ID: $id)");
         http_response_code(500);
         echo json_encode(['error' => 'Failed to move subtitle file']);
         exit;
+    } else {
+        log_upload_event("SUCCESS: Subtitle uploaded for '$title' (ID: $id)");
     }
 }
 
@@ -55,6 +59,7 @@ if (!$totalChunks && !isset($_FILES['video']) && $id && $subtitlePath) {
     mysqli_stmt_close($stmt);
     mysqli_close($conn);
 
+    log_upload_event("SUCCESS: Subtitle-only update for '$title' (ID: $id)");
     echo json_encode(['success' => true, 'message' => 'Movie updated with new subtitle only']);
     exit;
 }
@@ -76,9 +81,11 @@ if ($totalChunks > 0) {
             mysqli_stmt_close($stmt);
             mysqli_close($conn);
 
+            log_upload_event("SUCCESS: Movie updated without changing video for '$title' (ID: $id)");
             echo json_encode(['success' => true, 'message' => 'Movie updated without changing video']);
             exit;
         } else {
+            log_upload_event("ERROR: No video file uploaded for chunked upload of '$title' (ID: $id)");
             http_response_code(400);
             echo json_encode(['error' => 'No file uploaded']);
             exit;
@@ -87,6 +94,7 @@ if ($totalChunks > 0) {
 
     $chunk = $_FILES['video'];
     if ($chunk['error'] !== UPLOAD_ERR_OK) {
+        log_upload_event("ERROR: Chunk upload error for '$title' (ID: $id): " . $chunk['error']);
         http_response_code(500);
         echo json_encode(['error' => 'Chunk upload error: ' . $chunk['error']]);
         exit;
@@ -94,6 +102,7 @@ if ($totalChunks > 0) {
 
     $chunkFile = $tempDir . $fileName . '_chunk' . $chunkNumber;
     if (!move_uploaded_file($chunk['tmp_name'], $chunkFile)) {
+        log_upload_event("ERROR: Failed to save chunk for '$title' (ID: $id), chunk $chunkNumber");
         http_response_code(500);
         echo json_encode(['error' => 'Failed to save chunk']);
         exit;
@@ -124,6 +133,7 @@ if ($totalChunks > 0) {
         $ffmpegCmd = "ffmpeg -i " . escapeshellarg($finalFilePath) . " -profile:v baseline -level 3.0 -start_number 0 -hls_time 10 -hls_list_size 0 -f hls " . escapeshellarg($hlsPlaylist) . " 2>&1";
         $output = shell_exec($ffmpegCmd);
         if (!file_exists($hlsPlaylist)) {
+            log_upload_event("ERROR: Failed to convert merged video to HLS for '$title' (ID: $id): $output");
             http_response_code(500);
             echo json_encode(['error' => 'Failed to convert video to HLS', 'ffmpeg_output' => $output]);
             exit;
@@ -157,9 +167,11 @@ if ($totalChunks > 0) {
         mysqli_stmt_close($stmt);
         mysqli_close($conn);
 
+        log_upload_event("SUCCESS: Uploaded and merged movie '$title' (ID: $id)");
         echo json_encode(['success' => true, 'message' => 'Upload and merge complete']);
         exit;
     } else {
+        log_upload_event("SUCCESS: Uploaded chunk $chunkNumber of $totalChunks for '$title' (ID: $id)");
         echo json_encode(['success' => true, 'message' => "Chunk $chunkNumber uploaded"]);
         exit;
     }
@@ -181,6 +193,7 @@ if (!isset($_FILES['video']) || $_FILES['video']['error'] === UPLOAD_ERR_NO_FILE
         mysqli_stmt_close($stmt);
         mysqli_close($conn);
 
+        log_upload_event("SUCCESS: Movie updated without changing video for '$title' (ID: $id)");
         echo json_encode(['success' => true, 'message' => 'Movie updated without changing video']);
         exit;
     } else {
@@ -192,6 +205,7 @@ if (!isset($_FILES['video']) || $_FILES['video']['error'] === UPLOAD_ERR_NO_FILE
 
 $file = $_FILES['video'];
 if ($file['error'] !== UPLOAD_ERR_OK) {
+    log_upload_event("ERROR: Upload error for '$title' (ID: $id): " . $file['error']);
     http_response_code(500);
     echo json_encode(['error' => 'Upload error: ' . $file['error']]);
     exit;
@@ -199,6 +213,7 @@ if ($file['error'] !== UPLOAD_ERR_OK) {
 
 $filePath = $uploadDir . uniqid() . '_' . basename($file['name']);
 if (!move_uploaded_file($file['tmp_name'], $filePath)) {
+    log_upload_event("ERROR: Failed to move uploaded video file for '$title' (ID: $id)");
     http_response_code(500);
     echo json_encode(['error' => 'Failed to move uploaded file']);
     exit;
@@ -213,6 +228,7 @@ $hlsPlaylist = $hlsDir . 'index.m3u8';
 $ffmpegCmd = "ffmpeg -i " . escapeshellarg($filePath) . " -profile:v baseline -level 3.0 -start_number 0 -hls_time 10 -hls_list_size 0 -f hls " . escapeshellarg($hlsPlaylist) . " 2>&1";
 $output = shell_exec($ffmpegCmd);
 if (!file_exists($hlsPlaylist)) {
+    log_upload_event("ERROR: Failed to convert video to HLS for '$title' (ID: $id): $output");
     http_response_code(500);
     echo json_encode(['error' => 'Failed to convert video to HLS', 'ffmpeg_output' => $output]);
     exit;
@@ -252,6 +268,13 @@ mysqli_stmt_execute($stmt);
 mysqli_stmt_close($stmt);
 mysqli_close($conn);
 
+log_upload_event("SUCCESS: Uploaded movie '$title' (ID: $id)");
 echo json_encode(['success' => true, 'message' => 'Upload complete']);
 exit;
+
+function log_upload_event($message) {
+    $logFile = __DIR__ . '/../uploads/log.txt';
+    $date = date('Y-m-d H:i:s');
+    file_put_contents($logFile, "[$date] $message\n", FILE_APPEND);
+}
 ?>
