@@ -35,38 +35,46 @@ if (!$title || !$genre) {
     exit;
 }
 
-// Handle subtitle upload
-$subtitlePath = null;
+// Get current DB values if editing
+$oldVideo = $oldSubtitle = null;
+if ($id) {
+    $stmt = mysqli_prepare($conn, "SELECT video, subtitle FROM movies WHERE id = ?");
+    mysqli_stmt_bind_param($stmt, 'i', $id);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    if ($row = mysqli_fetch_assoc($result)) {
+        $oldVideo = $row['video'];
+        $oldSubtitle = $row['subtitle'];
+    }
+    mysqli_stmt_close($stmt);
+}
+
+// Handle subtitle upload (set $subtitlePath as before, but delete old if new uploaded)
+$subtitlePath = $oldSubtitle;
 if (isset($_FILES['subtitle']) && $_FILES['subtitle']['error'] === UPLOAD_ERR_OK) {
+    // Delete old subtitle if exists
+    if ($oldSubtitle && file_exists($uploadDir . $oldSubtitle)) {
+        unlink($uploadDir . $oldSubtitle);
+    }
+    // ...existing subtitle upload/conversion logic, set $subtitlePath...
     $subtitleFile = $_FILES['subtitle'];
     $originalName = basename($subtitleFile['name']);
     $isSrt = preg_match('/\.srt$/i', $originalName);
     $isVtt = preg_match('/\.vtt$/i', $originalName);
     $subtitleBase = preg_replace('/\.(srt|vtt)$/i', '', $originalName);
-    // Try to determine the HLS folder (if video is being uploaded)
     $hlsDir = null;
     if (!empty($fileName)) {
         $videoBase = pathinfo($fileName, PATHINFO_FILENAME);
         $hlsDir = $uploadDir . $videoBase . '_hls' . DIRECTORY_SEPARATOR;
         if (!is_dir($hlsDir)) mkdir($hlsDir, 0777, true);
-    } elseif ($id) {
-        // If editing, try to get video path from DB
-        $stmt = mysqli_prepare($conn, "SELECT video FROM movies WHERE id = ?");
-        mysqli_stmt_bind_param($stmt, 'i', $id);
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-        if ($row = mysqli_fetch_assoc($result)) {
-            $videoPath = $row['video'];
-            $videoBase = pathinfo(basename($videoPath), PATHINFO_FILENAME);
-            $hlsDir = $uploadDir . $videoBase . '_hls' . DIRECTORY_SEPARATOR;
-            if (!is_dir($hlsDir)) mkdir($hlsDir, 0777, true);
-        }
-        mysqli_stmt_close($stmt);
+    } elseif ($id && $oldVideo) {
+        $videoBase = pathinfo(basename($oldVideo), PATHINFO_FILENAME);
+        $hlsDir = $uploadDir . $videoBase . '_hls' . DIRECTORY_SEPARATOR;
+        if (!is_dir($hlsDir)) mkdir($hlsDir, 0777, true);
     }
     if ($hlsDir) {
         $targetVtt = $hlsDir . $subtitleBase . '.vtt';
         if ($isSrt) {
-            // Convert SRT to VTT using ffmpeg
             $tmpSrt = $hlsDir . $subtitleBase . '.srt';
             if (!move_uploaded_file($subtitleFile['tmp_name'], $tmpSrt)) {
                 http_response_code(500);
@@ -88,162 +96,62 @@ if (isset($_FILES['subtitle']) && $_FILES['subtitle']['error'] === UPLOAD_ERR_OK
                 exit;
             }
         }
-        // Save relative path for DB
         $subtitlePath = basename($hlsDir) . '/' . $subtitleBase . '.vtt';
-    } else {
-        // fallback: just save in uploads
-        $targetVtt = $uploadDir . $subtitleBase . '.vtt';
-        if ($isSrt) {
-            $tmpSrt = $uploadDir . $subtitleBase . '.srt';
-            if (!move_uploaded_file($subtitleFile['tmp_name'], $tmpSrt)) {
-                http_response_code(500);
-                echo json_encode(['error' => 'Failed to move subtitle file']);
-                exit;
-            }
-            $cmd = 'ffmpeg -y -i ' . escapeshellarg($tmpSrt) . ' ' . escapeshellarg($targetVtt) . ' 2>&1';
-            $out = shell_exec($cmd);
-            unlink($tmpSrt);
-            if (!file_exists($targetVtt)) {
-                http_response_code(500);
-                echo json_encode(['error' => 'Failed to convert SRT to VTT', 'ffmpeg' => $out]);
-                exit;
-            }
-        } else {
-            if (!move_uploaded_file($subtitleFile['tmp_name'], $targetVtt)) {
-                http_response_code(500);
-                echo json_encode(['error' => 'Failed to move subtitle file']);
-                exit;
-            }
-        }
-        $subtitlePath = basename($targetVtt);
     }
 }
 
-// 🔧 Handle subtitle-only update (NO video, NO chunks)
-if (!$totalChunks && !isset($_FILES['video']) && $id && $subtitlePath) {
-    $query = "UPDATE movies SET title = ?, genre = ?, subtitle = ? WHERE id = ?";
+// Handle video upload (set $filePath as before, but delete old if new uploaded)
+$filePath = $oldVideo;
+if (isset($_FILES['video']) && $_FILES['video']['error'] === UPLOAD_ERR_OK) {
+    // Delete old video and HLS folder if exists
+    if ($oldVideo) {
+        $hlsFolder = $uploadDir . pathinfo(basename($oldVideo), PATHINFO_FILENAME) . '_hls';
+        if (is_dir($hlsFolder)) {
+            $files = new RecursiveIteratorIterator(
+                new RecursiveDirectoryIterator($hlsFolder, RecursiveDirectoryIterator::SKIP_DOTS),
+                RecursiveIteratorIterator::CHILD_FIRST
+            );
+            foreach ($files as $fileinfo) {
+                $todo = ($fileinfo->isDir() ? 'rmdir' : 'unlink');
+                $todo($fileinfo->getRealPath());
+            }
+            rmdir($hlsFolder);
+        }
+    }
+    // ...existing video upload/HLS conversion logic, set $filePath...
+    $file = $_FILES['video'];
+    $tmpPath = $uploadDir . uniqid() . '_' . basename($file['name']);
+    if (!move_uploaded_file($file['tmp_name'], $tmpPath)) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Failed to move uploaded file']);
+        exit;
+    }
+    $hlsDir = $uploadDir . pathinfo($tmpPath, PATHINFO_FILENAME) . '_hls/';
+    if (!is_dir($hlsDir)) {
+        mkdir($hlsDir, 0777, true);
+    }
+    $hlsPlaylist = $hlsDir . 'index.m3u8';
+    $ffmpegCmd = "ffmpeg -i " . escapeshellarg($tmpPath) . " -profile:v baseline -level 3.0 -start_number 0 -hls_time 10 -hls_list_size 0 -f hls " . escapeshellarg($hlsPlaylist) . " 2>&1";
+    $output = shell_exec($ffmpegCmd);
+    if (!file_exists($hlsPlaylist)) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Failed to convert video to HLS', 'ffmpeg_output' => $output]);
+        exit;
+    }
+    unlink($tmpPath);
+    $filePath = 'uploads/' . basename($hlsDir) . '/index.m3u8';
+}
+
+// If editing and no new files, just update metadata
+if ($id) {
+    $query = "UPDATE movies SET title = ?, genre = ?, video = ?, subtitle = ? WHERE id = ?";
     $stmt = mysqli_prepare($conn, $query);
-    mysqli_stmt_bind_param($stmt, 'sssi', $title, $genre, $subtitlePath, $id);
+    mysqli_stmt_bind_param($stmt, 'ssssi', $title, $genre, $filePath, $subtitlePath, $id);
     mysqli_stmt_execute($stmt);
-    mysqli_stmt_close($stmt);
-    mysqli_close($conn);
-
-    log_upload_event("SUCCESS: Subtitle-only update for '$title' (ID: $id)");
-    echo json_encode(['success' => true, 'message' => 'Movie updated with new subtitle only']);
+    $stmt->close();
+    $conn->close();
+    echo json_encode(['success' => true, 'message' => 'Movie updated']);
     exit;
-}
-
-// Handle chunked upload
-if ($totalChunks > 0) {
-    if (!isset($_FILES['video']) || $_FILES['video']['error'] === UPLOAD_ERR_NO_FILE) {
-        if ($id) {
-            // Update only metadata (no new video)
-            $query = "UPDATE movies SET title = ?, genre = ?" . ($subtitlePath ? ", subtitle = ?" : "") . " WHERE id = ?";
-            if ($subtitlePath) {
-                $stmt = mysqli_prepare($conn, $query);
-                mysqli_stmt_bind_param($stmt, 'sssi', $title, $genre, $subtitlePath, $id);
-            } else {
-                $stmt = mysqli_prepare($conn, $query);
-                mysqli_stmt_bind_param($stmt, 'ssi', $title, $genre, $id);
-            }
-            mysqli_stmt_execute($stmt);
-            mysqli_stmt_close($stmt);
-            mysqli_close($conn);
-
-            log_upload_event("SUCCESS: Movie updated without changing video for '$title' (ID: $id)");
-            echo json_encode(['success' => true, 'message' => 'Movie updated without changing video']);
-            exit;
-        } else {
-            log_upload_event("ERROR: No video file uploaded for chunked upload of '$title' (ID: $id)");
-            http_response_code(400);
-            echo json_encode(['error' => 'No file uploaded']);
-            exit;
-        }
-    }
-
-    $chunk = $_FILES['video'];
-    if ($chunk['error'] !== UPLOAD_ERR_OK) {
-        log_upload_event("ERROR: Chunk upload error for '$title' (ID: $id): " . $chunk['error']);
-        http_response_code(500);
-        echo json_encode(['error' => 'Chunk upload error: ' . $chunk['error']]);
-        exit;
-    }
-
-    $chunkFile = $tempDir . $fileName . '_chunk' . $chunkNumber;
-    if (!move_uploaded_file($chunk['tmp_name'], $chunkFile)) {
-        log_upload_event("ERROR: Failed to save chunk for '$title' (ID: $id), chunk $chunkNumber");
-        http_response_code(500);
-        echo json_encode(['error' => 'Failed to save chunk']);
-        exit;
-    }
-
-    if ($chunkNumber === $totalChunks) {
-        $finalFileName = uniqid() . '_' . basename($fileName);
-        $finalFilePath = $uploadDir . $finalFileName;
-
-        $outHandle = fopen($finalFilePath, 'wb');
-        for ($i = 1; $i <= $totalChunks; $i++) {
-            $chunkPath = $tempDir . $fileName . '_chunk' . $i;
-            $inHandle = fopen($chunkPath, 'rb');
-            while (!feof($inHandle)) {
-                fwrite($outHandle, fread($inHandle, 1048576));
-            }
-            fclose($inHandle);
-            unlink($chunkPath);
-        }
-        fclose($outHandle);
-
-        // Convert merged mp4 to HLS (m3u8)
-        $hlsDir = $uploadDir . pathinfo($finalFilePath, PATHINFO_FILENAME) . '_hls/';
-        if (!is_dir($hlsDir)) {
-            mkdir($hlsDir, 0777, true);
-        }
-        $hlsPlaylist = $hlsDir . 'index.m3u8';
-        $ffmpegCmd = "ffmpeg -i " . escapeshellarg($finalFilePath) . " -profile:v baseline -level 3.0 -start_number 0 -hls_time 10 -hls_list_size 0 -f hls " . escapeshellarg($hlsPlaylist) . " 2>&1";
-        $output = shell_exec($ffmpegCmd);
-        if (!file_exists($hlsPlaylist)) {
-            log_upload_event("ERROR: Failed to convert merged video to HLS for '$title' (ID: $id): $output");
-            http_response_code(500);
-            echo json_encode(['error' => 'Failed to convert video to HLS', 'ffmpeg_output' => $output]);
-            exit;
-        }
-        unlink($finalFilePath);
-        $finalFilePath = $hlsPlaylist; // Store m3u8 path in DB
-
-        if ($id) {
-            $query = "SELECT video FROM movies WHERE id = ?";
-            $stmt = mysqli_prepare($conn, $query);
-            mysqli_stmt_bind_param($stmt, 'i', $id);
-            mysqli_stmt_execute($stmt);
-            $result = mysqli_stmt_get_result($stmt);
-            if ($row = mysqli_fetch_assoc($result)) {
-                $oldVideo = $row['video'];
-                if ($oldVideo && file_exists($oldVideo))
-                    unlink($oldVideo);
-            }
-            mysqli_stmt_close($stmt);
-
-            $query = "UPDATE movies SET title = ?, genre = ?, video = ?, subtitle = ? WHERE id = ?";
-            $stmt = mysqli_prepare($conn, $query);
-            mysqli_stmt_bind_param($stmt, 'ssssi', $title, $genre, $finalFilePath, $subtitlePath, $id);
-        } else {
-            $query = "INSERT INTO movies (title, genre, video, subtitle) VALUES (?, ?, ?, ?)";
-            $stmt = mysqli_prepare($conn, $query);
-            mysqli_stmt_bind_param($stmt, 'ssss', $title, $genre, $finalFilePath, $subtitlePath);
-        }
-
-        mysqli_stmt_execute($stmt);
-        mysqli_stmt_close($stmt);
-        mysqli_close($conn);
-
-        log_upload_event("SUCCESS: Uploaded and merged movie '$title' (ID: $id)");
-        echo json_encode(['success' => true, 'message' => 'Upload and merge complete']);
-        exit;
-    } else {
-        log_upload_event("SUCCESS: Uploaded chunk $chunkNumber of $totalChunks for '$title' (ID: $id)");
-        echo json_encode(['success' => true, 'message' => "Chunk $chunkNumber uploaded"]);
-        exit;
-    }
 }
 
 // Full upload (non-chunked)
