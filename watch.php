@@ -51,12 +51,39 @@ $movie = $result->fetch_assoc();
 
 <body>
   <h1><?php echo htmlspecialchars($movie['title']); ?></h1>
-  <video controls>
-    <source src="ENGLISH/<?php echo htmlspecialchars($movie['video']); ?>" type="video/mp4">
-    <track src="ENGLISH/<?php echo htmlspecialchars($movie['subtitle']); ?>" kind="subtitles" srclang="en"
-      label="English">
-    Your browser does not support the video tag.
-  </video>
+  <video id="video" controls style="background:#000;max-width:90%;border-radius:12px;box-shadow:0 0 16px #000000aa;"></video>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script>
+    var video = document.getElementById('video');
+    var videoSrc = '<?php echo addslashes($movie['video']); ?>';
+    // If the path is not absolute, prepend ENGLISH/
+    if (!videoSrc.match(/^([a-zA-Z]:|\\|\/)?.*\.m3u8$/)) {
+      videoSrc = 'ENGLISH/' + videoSrc.replace(/^\/+/, '');
+    }
+    // Add subtitle track if available
+    <?php if (!empty($movie['subtitle'])): ?>
+      var track = document.createElement('track');
+      track.kind = 'subtitles';
+      track.label = 'English';
+      track.srclang = 'en';
+      track.src = 'ENGLISH/<?php echo addslashes($movie['subtitle']); ?>';
+      video.appendChild(track);
+    <?php endif; ?>
+    if (Hls.isSupported()) {
+      var hls = new Hls();
+      hls.loadSource(videoSrc);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.ERROR, function(event, data) {
+        if (data.fatal) {
+          video.outerHTML = '<div style="color:red">Failed to load video (HLS error).</div>';
+        }
+      });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = videoSrc;
+    } else {
+      video.outerHTML = '<div style="color:red">Your browser does not support HLS playback.</div>';
+    }
+  </script>
 
 </body>
 

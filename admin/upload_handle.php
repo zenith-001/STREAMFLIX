@@ -188,6 +188,23 @@ if (!move_uploaded_file($file['tmp_name'], $filePath)) {
     exit;
 }
 
+// Convert uploaded video to HLS (m3u8)
+$hlsDir = $uploadDir . pathinfo($filePath, PATHINFO_FILENAME) . '_hls/';
+if (!is_dir($hlsDir)) {
+    mkdir($hlsDir, 0777, true);
+}
+$hlsPlaylist = $hlsDir . 'index.m3u8';
+$ffmpegCmd = "ffmpeg -i " . escapeshellarg($filePath) . " -profile:v baseline -level 3.0 -start_number 0 -hls_time 10 -hls_list_size 0 -f hls " . escapeshellarg($hlsPlaylist) . " 2>&1";
+$output = shell_exec($ffmpegCmd);
+if (!file_exists($hlsPlaylist)) {
+    http_response_code(500);
+    echo json_encode(['error' => 'Failed to convert video to HLS', 'ffmpeg_output' => $output]);
+    exit;
+}
+// Optionally delete original mp4 to save space
+unlink($filePath);
+$filePath = $hlsPlaylist; // Store m3u8 path in DB
+
 if ($id) {
     $query = "SELECT video FROM movies WHERE id = ?";
     $stmt = mysqli_prepare($conn, $query);
