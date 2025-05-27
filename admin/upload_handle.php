@@ -39,14 +39,83 @@ if (!$title || !$genre) {
 $subtitlePath = null;
 if (isset($_FILES['subtitle']) && $_FILES['subtitle']['error'] === UPLOAD_ERR_OK) {
     $subtitleFile = $_FILES['subtitle'];
-    $subtitlePath = $uploadDir . uniqid() . '_' . basename($subtitleFile['name']);
-    if (!move_uploaded_file($subtitleFile['tmp_name'], $subtitlePath)) {
-        log_upload_event("ERROR: Failed to move subtitle file for '$title' (ID: $id)");
-        http_response_code(500);
-        echo json_encode(['error' => 'Failed to move subtitle file']);
-        exit;
+    $originalName = basename($subtitleFile['name']);
+    $isSrt = preg_match('/\.srt$/i', $originalName);
+    $isVtt = preg_match('/\.vtt$/i', $originalName);
+    $subtitleBase = preg_replace('/\.(srt|vtt)$/i', '', $originalName);
+    // Try to determine the HLS folder (if video is being uploaded)
+    $hlsDir = null;
+    if (!empty($fileName)) {
+        $videoBase = pathinfo($fileName, PATHINFO_FILENAME);
+        $hlsDir = $uploadDir . $videoBase . '_hls' . DIRECTORY_SEPARATOR;
+        if (!is_dir($hlsDir)) mkdir($hlsDir, 0777, true);
+    } elseif ($id) {
+        // If editing, try to get video path from DB
+        $stmt = mysqli_prepare($conn, "SELECT video FROM movies WHERE id = ?");
+        mysqli_stmt_bind_param($stmt, 'i', $id);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        if ($row = mysqli_fetch_assoc($result)) {
+            $videoPath = $row['video'];
+            $videoBase = pathinfo(basename($videoPath), PATHINFO_FILENAME);
+            $hlsDir = $uploadDir . $videoBase . '_hls' . DIRECTORY_SEPARATOR;
+            if (!is_dir($hlsDir)) mkdir($hlsDir, 0777, true);
+        }
+        mysqli_stmt_close($stmt);
+    }
+    if ($hlsDir) {
+        $targetVtt = $hlsDir . $subtitleBase . '.vtt';
+        if ($isSrt) {
+            // Convert SRT to VTT using ffmpeg
+            $tmpSrt = $hlsDir . $subtitleBase . '.srt';
+            if (!move_uploaded_file($subtitleFile['tmp_name'], $tmpSrt)) {
+                http_response_code(500);
+                echo json_encode(['error' => 'Failed to move subtitle file']);
+                exit;
+            }
+            $cmd = 'ffmpeg -y -i ' . escapeshellarg($tmpSrt) . ' ' . escapeshellarg($targetVtt) . ' 2>&1';
+            $out = shell_exec($cmd);
+            unlink($tmpSrt);
+            if (!file_exists($targetVtt)) {
+                http_response_code(500);
+                echo json_encode(['error' => 'Failed to convert SRT to VTT', 'ffmpeg' => $out]);
+                exit;
+            }
+        } else {
+            if (!move_uploaded_file($subtitleFile['tmp_name'], $targetVtt)) {
+                http_response_code(500);
+                echo json_encode(['error' => 'Failed to move subtitle file']);
+                exit;
+            }
+        }
+        // Save relative path for DB
+        $subtitlePath = basename($hlsDir) . '/' . $subtitleBase . '.vtt';
     } else {
-        log_upload_event("SUCCESS: Subtitle uploaded for '$title' (ID: $id)");
+        // fallback: just save in uploads
+        $targetVtt = $uploadDir . $subtitleBase . '.vtt';
+        if ($isSrt) {
+            $tmpSrt = $uploadDir . $subtitleBase . '.srt';
+            if (!move_uploaded_file($subtitleFile['tmp_name'], $tmpSrt)) {
+                http_response_code(500);
+                echo json_encode(['error' => 'Failed to move subtitle file']);
+                exit;
+            }
+            $cmd = 'ffmpeg -y -i ' . escapeshellarg($tmpSrt) . ' ' . escapeshellarg($targetVtt) . ' 2>&1';
+            $out = shell_exec($cmd);
+            unlink($tmpSrt);
+            if (!file_exists($targetVtt)) {
+                http_response_code(500);
+                echo json_encode(['error' => 'Failed to convert SRT to VTT', 'ffmpeg' => $out]);
+                exit;
+            }
+        } else {
+            if (!move_uploaded_file($subtitleFile['tmp_name'], $targetVtt)) {
+                http_response_code(500);
+                echo json_encode(['error' => 'Failed to move subtitle file']);
+                exit;
+            }
+        }
+        $subtitlePath = basename($targetVtt);
     }
 }
 
