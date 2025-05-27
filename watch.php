@@ -16,35 +16,6 @@ if ($result->num_rows === 0) {
 }
 
 $movie = $result->fetch_assoc();
-
-// --- Ensure subtitle path is correct in DB (move logic from convert_existing_uploads.php) ---
-$subtitle = $movie['subtitle'];
-$video = $movie['video'];
-$updatedSubtitle = $subtitle;
-if (!empty($video) && !empty($subtitle)) {
-    $videoBase = basename($video);
-    $idPrefix = preg_match('/^([a-f0-9]+)_/', $videoBase, $m) ? $m[1] : '';
-    $subtitleFile = basename($subtitle);
-    $subtitleVtt = preg_replace('/\.srt$/i', '.vtt', $subtitleFile);
-    $hlsFolder = 'uploads/' . $idPrefix . '_';
-    // Find the full HLS folder name
-    $hlsDir = null;
-    foreach (glob(__DIR__ . '/uploads/' . $idPrefix . '_*_hls', GLOB_ONLYDIR) as $dir) {
-        $hlsDir = basename($dir);
-        break;
-    }
-    if ($hlsDir && file_exists(__DIR__ . "/uploads/$hlsDir/$subtitleVtt")) {
-        $correctSubtitle = "$hlsDir/$subtitleVtt";
-        if ($subtitle !== $correctSubtitle) {
-            // Update DB if needed
-            $stmt = $conn->prepare("UPDATE movies SET subtitle=? WHERE id=?");
-            $stmt->bind_param('si', $correctSubtitle, $id);
-            $stmt->execute();
-            $stmt->close();
-            $updatedSubtitle = $correctSubtitle;
-        }
-    }
-}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -86,8 +57,8 @@ if (!empty($video) && !empty($subtitle)) {
     <?php else: ?>
       <source src="ENGLISH/<?php echo htmlspecialchars($movie['video']); ?>" type="video/mp4">
     <?php endif; ?>
-    <?php if (!empty($updatedSubtitle)): ?>
-      <track src="ENGLISH/uploads/<?php echo htmlspecialchars($updatedSubtitle); ?>" kind="subtitles" srclang="en" label="English" default>
+    <?php if (!empty($movie['subtitle'])): ?>
+      <track src="ENGLISH/uploads/<?php echo htmlspecialchars($movie['subtitle']); ?>" kind="subtitles" srclang="en" label="English" default>
     <?php endif; ?>
     Your browser does not support the video tag.
   </video>
