@@ -35,6 +35,7 @@ if (isset($_GET['id'])) {
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     // On form submission, override variables with POST data
+    $id = $_POST['id'] ?? '';
     $title = $_POST['title'] ?? '';
     $genre = $_POST['genre'] ?? '';
 
