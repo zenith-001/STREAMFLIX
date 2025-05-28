@@ -1,20 +1,19 @@
 <?php
 session_start();
+ob_start(); // Start output buffering
+
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     header('Location: index.php'); // Redirect to login page
     exit;
 }
 
-
 include '../db.php';
-
 
 // Initialize variables
 $id = null;
 $title = '';
 $genre = '';
 $subtitlePath = '';
-
 
 // If editing, get existing movie data
 if (isset($_GET['id'])) {
@@ -31,62 +30,9 @@ if (isset($_GET['id'])) {
     }
     $stmt->close();
 }
-
-
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    // On form submission, override variables with POST data
-    $id = $_POST['id'] ?? '';
-    $title = $_POST['title'] ?? '';
-    $genre = $_POST['genre'] ?? '';
-
-
-    // Basic validation
-    if (!$id || !$title || !$genre) {
-        http_response_code(400);
-        echo json_encode(['error' => 'ID, title, and genre are required']);
-        exit;
-    }
-
-
-    // Handle subtitle upload
-    if (isset($_FILES['subtitle']) && $_FILES['subtitle']['error'] === UPLOAD_ERR_OK) {
-        $subtitleFile = $_FILES['subtitle'];
-        $subtitlePath = '../uploads/subtitles/' . uniqid() . '_' . basename($subtitleFile['name']);
-        if (!move_uploaded_file($subtitleFile['tmp_name'], $subtitlePath)) {
-            http_response_code(500);
-            echo json_encode(['error' => 'Failed to move subtitle file']);
-            exit;
-        }
-    }
-
-
-    // Update movie details in the database
-    $query = "UPDATE movies SET title = ?, genre = ?" . ($subtitlePath ? ", subtitle = ?" : "") . " WHERE id = ?";
-    $stmt = mysqli_prepare($conn, $query);
-
-
-    if ($subtitlePath) {
-        mysqli_stmt_bind_param($stmt, 'sssi', $title, $genre, $subtitlePath, $id);
-    } else {
-        mysqli_stmt_bind_param($stmt, 'ssi', $title, $genre, $id);
-    }
-
-
-    if (mysqli_stmt_execute($stmt)) {
-        mysqli_stmt_close($stmt);
-        mysqli_close($conn);
-        echo json_encode(['success' => true, 'message' => 'Movie updated successfully']);
-    } else {
-        http_response_code(500);
-        echo json_encode(['error' => 'Failed to update movie: ' . mysqli_error($conn)]);
-    }
-}
 ?>
-
-
 <!DOCTYPE html>
 <html lang="en">
-
 
 <head>
     <meta charset="UTF-8" />
@@ -101,14 +47,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             padding: 2rem;
         }
 
-
         .upload-container {
             background: #1f1f1f;
             padding: 2rem;
             border-radius: 8px;
             box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
         }
-
 
         input[type="text"],
         input[type="file"] {
@@ -121,7 +65,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             color: #e0e0e0;
         }
 
-
         input[type="submit"] {
             background: #e50914;
             color: #fff;
@@ -132,23 +75,19 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             transition: background 0.3s;
         }
 
-
         input[type="submit"]:hover {
             background: #d40813;
         }
     </style>
 </head>
 
-
 <body>
     <div class="upload-container">
         <h1>Edit Movie</h1>
         <form id="editForm" enctype="multipart/form-data" method="POST">
             <input type="hidden" name="id" value="<?php echo $id; ?>" />
-            <input type="text" name="title" placeholder="Movie Title" value="<?php echo htmlspecialchars($title); ?>"
-                required />
-            <input type="text" name="genre" placeholder="Movie Genre" value="<?php echo htmlspecialchars($genre); ?>"
-                required />
+            <input type="text" name="title" placeholder="Movie Title" value="<?php echo htmlspecialchars($title); ?>" required />
+            <input type="text" name="genre" placeholder="Movie Genre" value="<?php echo htmlspecialchars($genre); ?>" required />
             <input type="file" name="subtitle" />
             <input type="submit" value="Update Movie" />
         </form>
@@ -156,31 +95,27 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     </div>
 </body>
 
-
 </html>
-
 
 <script>
     const editForm = document.getElementById('editForm');
     const messages = document.getElementById('messages');
 
-
     editForm.addEventListener('submit', async function (e) {
         e.preventDefault();
 
-
         const formData = new FormData(editForm);
 
-
-        const response = await fetch('edit.php', {
+        const response = await fetch('edit_handle.php', {
             method: 'POST',
             body: formData,
         });
 
-
         const result = await response.json();
+        console.log(result);
+
         if (response.ok) {
-            messages.textContent = result.message;
+            messages.textContent = result.message; // Display success message
         } else {
             messages.textContent = result.error || 'Error updating movie.';
         }

@@ -1,68 +1,96 @@
 <?php
 session_start();
+header('Content-Type: application/json');
+
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
-    header('HTTP/1.1 403 Forbidden');
-    echo json_encode(['error' => 'Not logged in']);
+    http_response_code(401);
+    echo json_encode(['message' => 'Unauthorized']);
     exit;
 }
 
 include '../db.php';
 
-$id = $_POST['id'] ?? null;
-$title = $_POST['title'] ?? null;
-$genre = $_POST['genre'] ?? null;
-$subtitlePath = null;
+$id = $_POST['id'] ?? '';
+$title = $_POST['title'] ?? '';
+$genre = $_POST['genre'] ?? '';
+$subtitlePath = '';
 
-// Basic validation
 if (!$id || !$title || !$genre) {
     http_response_code(400);
-    echo json_encode(['error' => 'ID, title, and genre are required']);
+    echo json_encode(['message' => 'ID, title, and genre are required']);
     exit;
 }
 
-// Handle subtitle upload
+// Function to convert SRT content to VTT content
+function srtToVtt($srtContent) {
+    // Add WEBVTT header
+    $vtt = "WEBVTT\n\n";
+
+    // Replace commas in timestamps with dots for milliseconds
+    $lines = explode("\n", $srtContent);
+    foreach ($lines as $line) {
+        // convert timestamps format: 00:00:20,000 --> 00:00:24,400 to 00:00:20.000 --> 00:00:24.400
+        if (preg_match('/(\d{2}:\d{2}:\d{2}),(\d{3}) --> (\d{2}:\d{2}:\d{2}),(\d{3})/', $line)) {
+            $line = preg_replace('/,/', '.', $line);
+        }
+        $vtt .= $line . "\n";
+    }
+    return $vtt;
+}
+
+// Handle subtitle upload if available
 if (isset($_FILES['subtitle']) && $_FILES['subtitle']['error'] === UPLOAD_ERR_OK) {
     $subtitleFile = $_FILES['subtitle'];
-    $subtitlePath = '../uploads/subtitles/' . uniqid() . '_' . basename($subtitleFile['name']);
+    $ext = pathinfo($subtitleFile['name'], PATHINFO_EXTENSION);
+    $uniqueName = uniqid() . '_' . basename($subtitleFile['name']);
+    $uploadDir = '../uploads/subtitles/';
+    $subtitlePath = $uploadDir . $uniqueName;
+
     if (!move_uploaded_file($subtitleFile['tmp_name'], $subtitlePath)) {
         http_response_code(500);
-        echo json_encode(['error' => 'Failed to move subtitle file']);
+        echo json_encode(['message' => 'Failed to move subtitle file']);
         exit;
+    }
+
+    // If uploaded file is .srt, convert it to .vtt
+    if (strtolower($ext) === 'srt') {
+        $srtContent = file_get_contents($subtitlePath);
+        $vttContent = srtToVtt($srtContent);
+
+        // Save as .vtt file instead of .srt
+        $vttPath = preg_replace('/\.srt$/i', '.vtt', $subtitlePath);
+
+        if (file_put_contents($vttPath, $vttContent) === false) {
+            http_response_code(500);
+            echo json_encode(['message' => 'Failed to save VTT subtitle']);
+            exit;
+        }
+
+        // Delete original .srt file
+        unlink($subtitlePath);
+
+        // Update path to new .vtt file
+        $subtitlePath = $vttPath;
     }
 }
 
-// Handle video upload
-$videoPath = null;
-if (isset($_FILES['video']) && $_FILES['video']['error'] === UPLOAD_ERR_OK) {
-    $videoFile = $_FILES['video'];
-    $videoPath = '../uploads/videos/' . uniqid() . '_' . basename($videoFile['name']);
-    if (!move_uploaded_file($videoFile['tmp_name'], $videoPath)) {
-        http_response_code(500);
-        echo json_encode(['error' => 'Failed to move video file']);
-        exit;
-    }
-}
+// Update query
+$query = "UPDATE movies SET title = ?, genre = ?" . ($subtitlePath ? ", subtitle = ?" : "") . " WHERE id = ?";
+$stmt = $conn->prepare($query);
 
-// Update movie details in the database
-$query = "UPDATE movies SET title = ?, genre = ?" . ($subtitlePath ? ", subtitle = ?" : "") . ($videoPath ? ", video = ?" : "") . " WHERE id = ?";
-$stmt = mysqli_prepare($conn, $query);
-
-if ($subtitlePath && $videoPath) {
-    mysqli_stmt_bind_param($stmt, 'ssssi', $title, $genre, $subtitlePath, $videoPath, $id);
-} elseif ($subtitlePath) {
-    mysqli_stmt_bind_param($stmt, 'sssi', $title, $genre, $subtitlePath, $id);
-} elseif ($videoPath) {
-    mysqli_stmt_bind_param($stmt, 'sssi', $title, $genre, $videoPath, $id);
+if ($subtitlePath) {
+    $stmt->bind_param("sssi", $title, $genre, $subtitlePath, $id);
 } else {
-    mysqli_stmt_bind_param($stmt, 'ssi', $title, $genre, $id);
+    $stmt->bind_param("ssi", $title, $genre, $id);
 }
 
-if (mysqli_stmt_execute($stmt)) {
-    mysqli_stmt_close($stmt);
-    mysqli_close($conn);
-    echo json_encode(['success' => true, 'message' => 'Movie updated successfully']);
+if ($stmt->execute()) {
+    echo json_encode(['message' => 'Movie updated successfully']);
 } else {
     http_response_code(500);
-    echo json_encode(['error' => 'Failed to update movie: ' . mysqli_error($conn)]);
+    echo json_encode(['message' => 'Failed to update movie: ' . $conn->error]);
 }
+
+$stmt->close();
+$conn->close();
 ?>
