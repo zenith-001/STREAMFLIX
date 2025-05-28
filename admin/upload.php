@@ -33,27 +33,6 @@ if (isset($_GET['id'])) {
     }
     $stmt->close();
 }
-
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    // On form submission, override variables with POST data
-    $title = $_POST['title'] ?? '';
-    $genre = $_POST['genre'] ?? '';
-
-    if ($editing && isset($_POST['id'])) {
-        $id = intval($_POST['id']);
-    }
-
-    // Redirect to the appropriate handler based on whether it's an edit or upload
-    if ($editing) {
-        // Redirect to edit_handle.php for editing
-        header("Location: edit_handle.php");
-        exit;
-    } else {
-        // Redirect to upload_handle.php for uploading
-        header("Location: upload_handle.php");
-        exit;
-    }
-}
 ?>
 
 <!DOCTYPE html>
@@ -157,6 +136,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             return;
         }
 
+        // Determine the endpoint based on whether we are editing or uploading
+        const endpoint = id ? 'edit_handle.php' : 'upload_handle.php';
+
         // If no video, just upload data + subtitle
         if (!videoFile) {
             const formData = new FormData();
@@ -166,7 +148,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             if (subtitleFile) formData.append('subtitle', subtitleFile);
 
             setStatus("Uploading metadata and subtitle...");
-            const response = await fetch('upload_handle.php', {
+            const response = await fetch(endpoint, {
                 method: 'POST',
                 body: formData,
             });
@@ -200,7 +182,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
             setStatus(`Uploading chunk ${chunkNumber} of ${totalChunks}...`, Math.round((chunkNumber / totalChunks) * 80));
 
-            const response = await fetch('upload_handle.php', {
+            const response = await fetch(endpoint, {
                 method: 'POST',
                 body: formData,
             });
