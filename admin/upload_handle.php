@@ -4,28 +4,33 @@ ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 session_start();
 
+
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     header('HTTP/1.1 403 Forbidden');
     echo json_encode(['error' => 'Not logged in']);
     exit;
 }
 
+
 include '../db.php';
+
 
 $uploadDir = '../uploads/';
 $tempDir = $uploadDir . 'temp/';
+
 
 // Create temp dir if not exists
 if (!is_dir($tempDir)) {
     mkdir($tempDir, 0777, true);
 }
 
-$id = $_POST['id'] ?? null;
+
 $title = $_POST['title'] ?? null;
 $genre = $_POST['genre'] ?? null;
 $totalChunks = isset($_POST['totalChunks']) ? intval($_POST['totalChunks']) : 0;
 $chunkNumber = isset($_POST['chunkNumber']) ? intval($_POST['chunkNumber']) : 0;
 $fileName = $_POST['fileName'] ?? null;
+
 
 // Basic validation
 if (!$title || !$genre) {
@@ -33,6 +38,7 @@ if (!$title || !$genre) {
     echo json_encode(['error' => 'Title and genre required']);
     exit;
 }
+
 
 // Handle subtitle upload
 $subtitlePath = null;
@@ -46,44 +52,15 @@ if (isset($_FILES['subtitle']) && $_FILES['subtitle']['error'] === UPLOAD_ERR_OK
     }
 }
 
-// 🔧 Handle subtitle-only update (NO video, NO chunks)
-if (!$totalChunks && !isset($_FILES['video']) && $id && $subtitlePath) {
-    $query = "UPDATE movies SET title = ?, genre = ?, subtitle = ? WHERE id = ?";
-    $stmt = mysqli_prepare($conn, $query);
-    mysqli_stmt_bind_param($stmt, 'sssi', $title, $genre, $subtitlePath, $id);
-    mysqli_stmt_execute($stmt);
-    mysqli_stmt_close($stmt);
-    mysqli_close($conn);
-
-    echo json_encode(['success' => true, 'message' => 'Movie updated with new subtitle only']);
-    exit;
-}
 
 // Handle chunked upload
 if ($totalChunks > 0) {
     if (!isset($_FILES['video']) || $_FILES['video']['error'] === UPLOAD_ERR_NO_FILE) {
-        if ($id) {
-            // Update only metadata (no new video)
-            $query = "UPDATE movies SET title = ?, genre = ?" . ($subtitlePath ? ", subtitle = ?" : "") . " WHERE id = ?";
-            if ($subtitlePath) {
-                $stmt = mysqli_prepare($conn, $query);
-                mysqli_stmt_bind_param($stmt, 'sssi', $title, $genre, $subtitlePath, $id);
-            } else {
-                $stmt = mysqli_prepare($conn, $query);
-                mysqli_stmt_bind_param($stmt, 'ssi', $title, $genre, $id);
-            }
-            mysqli_stmt_execute($stmt);
-            mysqli_stmt_close($stmt);
-            mysqli_close($conn);
-
-            echo json_encode(['success' => true, 'message' => 'Movie updated without changing video']);
-            exit;
-        } else {
-            http_response_code(400);
-            echo json_encode(['error' => 'No file uploaded']);
-            exit;
-        }
+        http_response_code(400);
+        echo json_encode(['error' => 'No file uploaded']);
+        exit;
     }
+
 
     $chunk = $_FILES['video'];
     if ($chunk['error'] !== UPLOAD_ERR_OK) {
@@ -92,6 +69,7 @@ if ($totalChunks > 0) {
         exit;
     }
 
+
     $chunkFile = $tempDir . $fileName . '_chunk' . $chunkNumber;
     if (!move_uploaded_file($chunk['tmp_name'], $chunkFile)) {
         http_response_code(500);
@@ -99,9 +77,11 @@ if ($totalChunks > 0) {
         exit;
     }
 
+
     if ($chunkNumber === $totalChunks) {
         $finalFileName = uniqid() . '_' . basename($fileName);
         $finalFilePath = $uploadDir . $finalFileName;
+
 
         $outHandle = fopen($finalFilePath, 'wb');
         for ($i = 1; $i <= $totalChunks; $i++) {
@@ -115,6 +95,7 @@ if ($totalChunks > 0) {
         }
         fclose($outHandle);
 
+
         // Convert to HLS format
         $hlsDir = $uploadDir . 'hls/';
         if (!is_dir($hlsDir)) {
@@ -122,6 +103,7 @@ if ($totalChunks > 0) {
         }
         $hlsFileName = pathinfo($finalFileName, PATHINFO_FILENAME);
         $hlsPlaylistPath = $hlsDir . $hlsFileName . '.m3u8';
+
 
         $ffmpegCommand = "ffmpeg -i " . escapeshellarg($finalFilePath) . " -codec: copy -start_number 0 -hls_time 10 -hls_list_size 0 -f hls " . escapeshellarg($hlsPlaylistPath);
         exec($ffmpegCommand, $output, $return_var);
@@ -131,33 +113,17 @@ if ($totalChunks > 0) {
             exit;
         }
 
-        if ($id) {
-            $query = "SELECT video FROM movies WHERE id = ?";
-            $stmt = mysqli_prepare($conn, $query);
-            mysqli_stmt_bind_param($stmt, 'i', $id);
-            mysqli_stmt_execute($stmt);
-            $result = mysqli_stmt_get_result($stmt);
-            if ($row = mysqli_fetch_assoc($result)) {
-                $oldVideo = $row['video'];
-                if ($oldVideo && file_exists($oldVideo))
-                    unlink($oldVideo);
-            }
-            mysqli_stmt_close($stmt);
 
-            $query = "UPDATE movies SET title = ?, genre = ?, video = ?, subtitle = ? WHERE id = ?";
-            $stmt = mysqli_prepare($conn, $query);
-            mysqli_stmt_bind_param($stmt, 'ssssi', $title, $genre, $hlsPlaylistPath, $subtitlePath, $id);
-        } else {
-            $query = "INSERT INTO movies (title, genre, video, subtitle) VALUES (?, ?, ?, ?)";
-            $stmt = mysqli_prepare($conn, $query);
-            mysqli_stmt_bind_param($stmt, 'ssss', $title, $genre, $hlsPlaylistPath, $subtitlePath);
-        }
-
+        // Insert into database
+        $query = "INSERT INTO movies (title, genre, video, subtitle) VALUES (?, ?, ?, ?)";
+        $stmt = mysqli_prepare($conn, $query);
+        mysqli_stmt_bind_param($stmt, 'ssss', $title, $genre, $hlsPlaylistPath, $subtitlePath);
         mysqli_stmt_execute($stmt);
         mysqli_stmt_close($stmt);
         mysqli_close($conn);
 
-        echo json_encode(['success' => true, 'message' => 'Upload and merge complete']);
+
+        echo json_encode(['success' => true, 'message' => 'Upload complete']);
         exit;
     } else {
         echo json_encode(['success' => true, 'message' => "Chunk $chunkNumber uploaded"]);
@@ -165,30 +131,14 @@ if ($totalChunks > 0) {
     }
 }
 
+
 // Full upload (non-chunked)
 if (!isset($_FILES['video']) || $_FILES['video']['error'] === UPLOAD_ERR_NO_FILE) {
-    if ($id) {
-        $query = "UPDATE movies SET title = ?, genre = ?" . ($subtitlePath ? ", subtitle = ?" : "") . " WHERE id = ?";
-        if ($subtitlePath) {
-            $stmt = mysqli_prepare($conn, $query);
-            mysqli_stmt_bind_param($stmt, 'sssi', $title, $genre, $subtitlePath, $id);
-        } else {
-            $stmt = mysqli_prepare($conn, $query);
-            mysqli_stmt_bind_param($stmt, 'ssi', $title, $genre, $id);
-        }
-
-        mysqli_stmt_execute($stmt);
-        mysqli_stmt_close($stmt);
-        mysqli_close($conn);
-
-        echo json_encode(['success' => true, 'message' => 'Movie updated without changing video']);
-        exit;
-    } else {
-        http_response_code(400);
-        echo json_encode(['error' => 'Video file is required for new upload']);
-        exit;
-    }
+    http_response_code(400);
+    echo json_encode(['error' => 'Video file is required for new upload']);
+    exit;
 }
+
 
 $file = $_FILES['video'];
 if ($file['error'] !== UPLOAD_ERR_OK) {
@@ -197,12 +147,14 @@ if ($file['error'] !== UPLOAD_ERR_OK) {
     exit;
 }
 
+
 $filePath = $uploadDir . uniqid() . '_' . basename($file['name']);
 if (!move_uploaded_file($file['tmp_name'], $filePath)) {
     http_response_code(500);
     echo json_encode(['error' => 'Failed to move uploaded file']);
     exit;
 }
+
 
 // Convert to HLS format
 $hlsDir = $uploadDir . 'hls/';
@@ -212,6 +164,7 @@ if (!is_dir($hlsDir)) {
 $hlsFileName = pathinfo($filePath, PATHINFO_FILENAME);
 $hlsPlaylistPath = $hlsDir . $hlsFileName . '.m3u8';
 
+
 $ffmpegCommand = "ffmpeg -i " . escapeshellarg($filePath) . " -codec: copy -start_number 0 -hls_time 10 -hls_list_size 0 -f hls " . escapeshellarg($hlsPlaylistPath);
 exec($ffmpegCommand, $output, $return_var);
 if ($return_var !== 0) {
@@ -220,36 +173,15 @@ if ($return_var !== 0) {
     exit;
 }
 
-if ($id) {
-    $query = "SELECT video FROM movies WHERE id = ?";
-    $stmt = mysqli_prepare($conn, $query);
-    mysqli_stmt_bind_param($stmt, 'i', $id);
-    mysqli_stmt_execute($stmt);
-    $result = mysqli_stmt_get_result($stmt);
-    if ($row = mysqli_fetch_assoc($result)) {
-        $oldVideo = $row['video'];
-        if ($oldVideo && file_exists($oldVideo))
-            unlink($oldVideo);
-    }
-    mysqli_stmt_close($stmt);
 
-    $query = "UPDATE movies SET title = ?, genre = ?, video = ?" . ($subtitlePath ? ", subtitle = ?" : "") . " WHERE id = ?";
-    if ($subtitlePath) {
-        $stmt = mysqli_prepare($conn, $query);
-        mysqli_stmt_bind_param($stmt, 'ssssi', $title, $genre, $hlsPlaylistPath, $subtitlePath, $id);
-    } else {
-        $stmt = mysqli_prepare($conn, $query);
-        mysqli_stmt_bind_param($stmt, 'sssi', $title, $genre, $hlsPlaylistPath, $id);
-    }
-} else {
-    $query = "INSERT INTO movies (title, genre, video, subtitle) VALUES (?, ?, ?, ?)";
-    $stmt = mysqli_prepare($conn, $query);
-    mysqli_stmt_bind_param($stmt, 'ssss', $title, $genre, $hlsPlaylistPath, $subtitlePath);
-}
-
+// Insert into database
+$query = "INSERT INTO movies (title, genre, video, subtitle) VALUES (?, ?, ?, ?)";
+$stmt = mysqli_prepare($conn, $query);
+mysqli_stmt_bind_param($stmt, 'ssss', $title, $genre, $hlsPlaylistPath, $subtitlePath);
 mysqli_stmt_execute($stmt);
 mysqli_stmt_close($stmt);
 mysqli_close($conn);
+
 
 echo json_encode(['success' => true, 'message' => 'Upload complete']);
 exit;
