@@ -185,7 +185,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
             setStatus(`Uploading chunk ${chunkNumber} of ${totalChunks}...`, Math.round((chunkNumber / totalChunks) * 80));
 
-            const response = await fetch('upload.php', {
+            const response = await fetch('upload_handle.php', {
                 method: 'POST',
                 body: formData,
             });
