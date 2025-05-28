@@ -51,13 +51,31 @@ $movie = $result->fetch_assoc();
 
 <body>
   <h1><?php echo htmlspecialchars($movie['title']); ?></h1>
-  <video controls>
-    <source src="ENGLISH/<?php echo htmlspecialchars($movie['video']); ?>" type="video/mp4">
-    <track src="ENGLISH/<?php echo htmlspecialchars($movie['subtitle']); ?>" kind="subtitles" srclang="en"
-      label="English">
+  <video id="video" controls>
+    <?php if (preg_match('/\.m3u8$/i', $movie['video'])): ?>
+      <!-- HLS.js will handle the source -->
+    <?php else: ?>
+      <source src="ENGLISH/<?php echo htmlspecialchars($movie['video']); ?>" type="video/mp4">
+    <?php endif; ?>
+    <?php if (!empty($movie['subtitle'])): ?>
+      <track src="ENGLISH/uploads/<?php echo htmlspecialchars($movie['subtitle']); ?>" kind="subtitles" srclang="en" label="English" default>
+    <?php endif; ?>
     Your browser does not support the video tag.
   </video>
 
+  <?php if (preg_match('/\.m3u8$/i', $movie['video'])): ?>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script>
+      const video = document.getElementById('video');
+      if (Hls.isSupported()) {
+        const hls = new Hls();
+        hls.loadSource('ENGLISH/<?php echo htmlspecialchars($movie['video']); ?>');
+        hls.attachMedia(video);
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = 'ENGLISH/<?php echo htmlspecialchars($movie['video']); ?>';
+      }
+    </script>
+  <?php endif; ?>
 </body>
 
 </html>

@@ -78,7 +78,6 @@ $result = mysqli_query($conn, $query);
         <th>Video File</th>
         <th>Subtitle File</th>
         <th>Actions</th>
-
       </tr>
     </thead>
     <tbody>
@@ -90,7 +89,7 @@ $result = mysqli_query($conn, $query);
           <td><?php echo htmlspecialchars($movie['video']); ?></td>
           <td><?php echo htmlspecialchars($movie['subtitle']); ?></td>
           <td>
-            <form action="upload.php" method="GET" style="display:inline;">
+            <form action="edit.php" method="GET" style="display:inline;">
               <input type="hidden" name="id" value="<?php echo $movie['id']; ?>" />
               <button type="submit" class="button">Edit</button>
             </form>
