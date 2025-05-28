@@ -43,39 +43,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $id = intval($_POST['id']);
     }
 
-    // If new video uploaded, delete old and upload new
-    if (isset($_FILES["video"]) && $_FILES["video"]["error"] == 0) {
-        if ($editing && file_exists($videoPath)) {
-            unlink($videoPath);
-        }
-        $videoPath = "uploads/videos/" . basename($_FILES["video"]["name"]);
-        move_uploaded_file($_FILES["video"]["tmp_name"], $videoPath);
-    }
-
-    // If new subtitle uploaded, delete old and upload new
-    if (isset($_FILES["subtitle"]) && $_FILES["subtitle"]["error"] == 0) {
-        if ($editing && !empty($subtitlePath) && file_exists($subtitlePath)) {
-            unlink($subtitlePath);
-        }
-        $subtitlePath = "uploads/subtitles/" . basename($_FILES["subtitle"]["name"]);
-        move_uploaded_file($_FILES["subtitle"]["tmp_name"], $subtitlePath);
-    }
-
+    // Redirect to the appropriate handler based on whether it's an edit or upload
     if ($editing) {
-        $stmt = $conn->prepare("UPDATE movies SET title=?, genre=?, video=?, subtitle=? WHERE id=?");
-        $stmt->bind_param("ssssi", $title, $genre, $videoPath, $subtitlePath, $id);
-    } else {
-        $stmt = $conn->prepare("INSERT INTO movies (title, genre, video, subtitle) VALUES (?, ?, ?, ?)");
-        $stmt->bind_param("ssss", $title, $genre, $videoPath, $subtitlePath);
-    }
-
-    if ($stmt->execute()) {
-        $stmt->close();
-        $conn->close();
-        header("Location: monitor.php");
+        header("Location: edit_handle.php");
         exit;
     } else {
-        echo "Error saving movie: " . $stmt->error;
+        header("Location: upload_handle.php");
+        exit;
     }
 }
 ?>
@@ -149,7 +123,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
 </html>
 
-  <script>
+<script>
     const uploadForm = document.getElementById('uploadForm');
     const progressBar = document.getElementById('progressBar');
     const messages = document.getElementById('messages');
@@ -263,4 +237,4 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
       setStatus("✅ Upload Success!", 100);
     });
-  </script>
+</script>
