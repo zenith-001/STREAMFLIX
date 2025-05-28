@@ -189,6 +189,15 @@ if ($file['error'] !== UPLOAD_ERR_OK) {
 }
 
 $filePath = $uploadDir . uniqid() . '_' . basename($file['name']);
+
+// Ensure upload directory exists and is writable
+if (!is_dir($uploadDir)) {
+    mkdir($uploadDir, 0777, true);
+}
+if (!is_writable($uploadDir)) {
+    chmod($uploadDir, 0777);
+}
+
 if (!move_uploaded_file($file['tmp_name'], $filePath)) {
     log_upload_event("ERROR: Failed to move uploaded video file for '$title' (ID: $id)");
     http_response_code(500);
