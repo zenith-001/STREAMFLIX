@@ -249,10 +249,14 @@ log_upload_event("SUCCESS: Uploaded movie '$title' (ID: $id)");
 echo json_encode(['success' => true, 'message' => 'Upload complete']);
 exit;
 
-// Helper: log to uploads/log.txt
+// Helper: log to uploads/log.txt (Linux/Windows friendly)
 function log_upload_event($message) {
-    $logFile = __DIR__ . '/../uploads/log.txt';
+    $logDir = realpath(__DIR__ . '/../uploads');
+    if (!$logDir) {
+        $logDir = __DIR__ . '/../uploads';
+    }
+    $logFile = rtrim($logDir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'log.txt';
     $date = date('Y-m-d H:i:s');
-    file_put_contents($logFile, "[$date] $message\n", FILE_APPEND);
+    file_put_contents($logFile, "[$date] $message\n", FILE_APPEND | LOCK_EX);
 }
 ?>
