@@ -7,31 +7,59 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
 
 include '../db.php';
 
-// Initialize variables
-$id = null;
-$title = '';
-$genre = '';
-$videoPath = '';
-$subtitlePath = '';
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    // Retrieve form data
+    $title = $_POST['title'] ?? '';
+    $genre = $_POST['genre'] ?? '';
 
-$editing = false;
-
-// If editing, get existing movie data
-if (isset($_GET['id'])) {
-    $id = intval($_GET['id']);
-    $editing = true;
-    $stmt = $conn->prepare("SELECT * FROM movies WHERE id = ?");
-    $stmt->bind_param("i", $id);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    if ($result->num_rows > 0) {
-        $movie = $result->fetch_assoc();
-        $title = $movie['title'];
-        $genre = $movie['genre'];
-        $videoPath = $movie['video'];
-        $subtitlePath = $movie['subtitle'];
+    // Basic validation
+    if (!$title || !$genre) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Title and genre are required']);
+        exit;
     }
-    $stmt->close();
+
+    // Handle video upload with chunking
+    $videoPath = null;
+    if (isset($_FILES['video']) && $_FILES['video']['error'] === UPLOAD_ERR_OK) {
+        $videoFile = $_FILES['video'];
+        $videoPath = '../uploads/videos/' . uniqid() . '_' . basename($videoFile['name']);
+        if (!move_uploaded_file($videoFile['tmp_name'], $videoPath)) {
+            http_response_code(500);
+            echo json_encode(['error' => 'Failed to move video file']);
+            exit;
+        }
+    } else {
+        http_response_code(400);
+        echo json_encode(['error' => 'Video file is required']);
+        exit;
+    }
+
+    // Handle subtitle upload
+    $subtitlePath = null;
+    if (isset($_FILES['subtitle']) && $_FILES['subtitle']['error'] === UPLOAD_ERR_OK) {
+        $subtitleFile = $_FILES['subtitle'];
+        $subtitlePath = '../uploads/subtitles/' . uniqid() . '_' . basename($subtitleFile['name']);
+        if (!move_uploaded_file($subtitleFile['tmp_name'], $subtitlePath)) {
+            http_response_code(500);
+            echo json_encode(['error' => 'Failed to move subtitle file']);
+            exit;
+        }
+    }
+
+    // Insert movie details into the database
+    $query = "INSERT INTO movies (title, genre, video, subtitle) VALUES (?, ?, ?, ?)";
+    $stmt = mysqli_prepare($conn, $query);
+    mysqli_stmt_bind_param($stmt, 'ssss', $title, $genre, $videoPath, $subtitlePath);
+
+    if (mysqli_stmt_execute($stmt)) {
+        mysqli_stmt_close($stmt);
+        mysqli_close($conn);
+        echo json_encode(['success' => true, 'message' => 'Movie uploaded successfully']);
+    } else {
+        http_response_code(500);
+        echo json_encode(['error' => 'Failed to upload movie: ' . mysqli_error($conn)]);
+    }
 }
 ?>
 
@@ -87,16 +115,14 @@ if (isset($_GET['id'])) {
 
 <body>
     <div class="upload-container">
-        <h1><?php echo $id ? 'Edit Movie' : 'Upload Movie'; ?></h1>
+        <h1>Upload New Movie</h1>
         <form id="uploadForm" enctype="multipart/form-data" method="POST">
-            <input type="hidden" name="id" id="movieId" value="<?php echo $id; ?>" />
-            <input type="text" name="title" id="title" placeholder="Movie Title" value="<?php echo htmlspecialchars($title); ?>" required />
-            <input type="text" name="genre" id="genre" placeholder="Movie Genre" value="<?php echo htmlspecialchars($genre); ?>" required />
-            <input type="file" name="video" id="videoFile" />
-            <input type="file" name="subtitle" id="subtitleFile" />
-            <input type="submit" value="<?php echo $id ? 'Update Movie' : 'Upload Movie'; ?>" />
+            <input type="text" name="title" placeholder="Movie Title" required />
+            <input type="text" name="genre" placeholder="Movie Genre" required />
+            <input type="file" name="video" required />
+            <input type="file" name="subtitle" />
+            <input type="submit" value="Upload Movie" />
         </form>
-
         <div id="messages" style="margin-top:1rem; font-weight: bold;"></div>
         <progress id="progressBar" value="0" max="100" style="width: 100%; display:none;"></progress>
     </div>
@@ -109,7 +135,7 @@ if (isset($_GET['id'])) {
     const progressBar = document.getElementById('progressBar');
     const messages = document.getElementById('messages');
 
-    const MAX_CHUNK_SIZE = 3 * 1024 * 1024;
+    const MAX_CHUNK_SIZE = 3 * 1024 * 1024; // 3MB
 
     function setStatus(text, percent = null) {
         messages.textContent = text;
@@ -122,38 +148,16 @@ if (isset($_GET['id'])) {
     uploadForm.addEventListener('submit', async function (e) {
         e.preventDefault();
 
-        const title = document.getElementById('title').value.trim();
-        const genre = document.getElementById('genre').value.trim();
-        const videoInput = document.getElementById('videoFile');
-        const subtitleInput = document.getElementById('subtitleFile');
-        const id = document.getElementById('movieId').value;
+        const title = document.querySelector('input[name="title"]').value.trim();
+        const genre = document.querySelector('input[name="genre"]').value.trim();
+        const videoInput = document.querySelector('input[name="video"]');
+        const subtitleInput = document.querySelector('input[name="subtitle"]');
 
         const videoFile = videoInput.files[0];
         const subtitleFile = subtitleInput.files[0];
 
         if (!title || !genre) {
             setStatus('Title and genre are required.');
-            return;
-        }
-
-        // Determine the endpoint based on whether we are editing or uploading
-        const endpoint = id ? 'edit_handle.php' : 'upload_handle.php';
-
-        // If no video, just upload data + subtitle
-        if (!videoFile) {
-            const formData = new FormData();
-            formData.append('title', title);
-            formData.append('genre', genre);
-            if (id) formData.append('id', id);
-            if (subtitleFile) formData.append('subtitle', subtitleFile);
-
-            setStatus("Uploading metadata and subtitle...");
-            const response = await fetch(endpoint, {
-                method: 'POST',
-                body: formData,
-            });
-            const result = await response.json();
-            setStatus(result.message || result.error || 'Upload complete!');
             return;
         }
 
@@ -175,14 +179,13 @@ if (isset($_GET['id'])) {
             formData.append('chunkNumber', chunkNumber);
             formData.append('totalChunks', totalChunks);
             formData.append('video', chunk);
-            if (id) formData.append('id', id);
             if (subtitleFile && chunkNumber === totalChunks) {
                 formData.append('subtitle', subtitleFile);
             }
 
             setStatus(`Uploading chunk ${chunkNumber} of ${totalChunks}...`, Math.round((chunkNumber / totalChunks) * 80));
 
-            const response = await fetch(endpoint, {
+            const response = await fetch('upload.php', {
                 method: 'POST',
                 body: formData,
             });
@@ -192,31 +195,6 @@ if (isset($_GET['id'])) {
                 setStatus(result.error || 'Error uploading chunk.');
                 return;
             }
-        }
-
-        setStatus("Merging chunks on server...", 90);
-
-        const mergeForm = new FormData();
-        mergeForm.append('fileName', fileName);
-        mergeForm.append('finalize', true); // optional flag for backend to finalize
-
-        await fetch('merge_chunks.php', {
-            method: 'POST',
-            body: mergeForm
-        });
-
-        if (subtitleFile) {
-            setStatus("Uploading subtitle...", 95);
-            const subtitleForm = new FormData();
-            subtitleForm.append('subtitle', subtitleFile);
-            subtitleForm.append('fileName', fileName);
-            if (id) subtitleForm.append('id', id);
-
-            await fetch('upload_subtitle.php', {
-                method: 'POST',
-                body: subtitleForm
-            });
-            setStatus("Subtitle upload complete!", 98);
         }
 
         setStatus("✅ Upload Success!", 100);
