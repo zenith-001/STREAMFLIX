@@ -53,19 +53,18 @@ Edit
 
 ### 1. Clone the Repository
 
-```bash
+```
 git clone https://github.com/zenith-001/STREAMFLIX.git
 cd STREAMFLIX
-2. Set Up Database
-Create a MySQL database (e.g. streamflix_db)
+```
+### 2. Set Up Database
+##### Create a MySQL database (e.g. streamflix_db)
 
-Import the SQL file if available (streamflix.sql)
+#### Import the SQL file if available (streamflix.sql)
 
-Create a config.php with your DB credentials:
+#### Create a config.php with your DB credentials:
 
-php
-Copy
-Edit
+``` php
 <?php
 $host = "localhost";
 $user = "root";
@@ -73,19 +72,18 @@ $pass = "";
 $db = "streamflix_db";
 $conn = new mysqli($host, $user, $pass, $db);
 ?>
-3. Install FFmpeg
-bash
-Copy
-Edit
+```
+### 3. Install FFmpeg
+```bash
 sudo apt install ffmpeg
-4. Run the Project
-bash
-Copy
-Edit
+```
+### 4. Run the Project
+```bash
 php -S localhost:8000
-Then open http://localhost:8000 in your browser.
+```
+#### Then open http://localhost:8000 in your browser.
 
-🧪 Admin Flow
+## 🧪 Admin Flow
 Go to upload.php to upload a movie and optional subtitle.
 
 View all uploads on monitor.php.
@@ -94,15 +92,13 @@ Edit any entry using edit.php?id=XX.
 
 Watch movies using watch.php?id=XX.
 
-📸 Screenshots
-<!-- Replace with your own screenshot links -->
 Upload Page	Watch Page	Monitor Dashboard
 
-🙌 Credits
+## 🙌 Credits
 Developed by Zenith-001
 Powered by open-source technologies.
 
-📜 License
+## 📜 License
 This project is licensed under the MIT License.
 
-⚠️ Note: StreamFlix is for personal or educational use. Do not use to host pirated or copyrighted content.
+## ⚠️ Note: StreamFlix is for personal or educational use. Do not use to host pirated or copyrighted content.
