@@ -29,19 +29,19 @@
 
 ## 📁 Project Structure
 
-StreamFlix/
-├── assets/
-│ └── css, js, images
-├── uploads/
-│ ├── videos/
-│ └── subtitles/
-├── upload.php
-├── upload_handle.php
-├── edit.php
-├── edit_handle.php
-├── watch.php
-├── monitor.php
-└── index.php
+StreamFlix/<br/>
+├── assets/<br/>
+│ └── css, js, images<br/>
+├── uploads/<br/>
+│ ├── videos/<br/>
+│ └── subtitles/<br/>
+├── upload.php<br/>
+├── upload_handle.php<br/>
+├── edit.php<br/>
+├── edit_handle.php<br/>
+├── watch.php<br/>
+├── monitor.php<br/>
+└── index.php<br/>
 
 yaml
 Copy
