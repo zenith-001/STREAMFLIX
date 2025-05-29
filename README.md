@@ -101,4 +101,4 @@ Powered by open-source technologies.
 ## 📜 License
 This project is licensed under the MIT License.
 
-## ⚠️ Note: StreamFlix is for personal or educational use. Do not use to host pirated or copyrighted content.
+##### ⚠️ Note: StreamFlix is for personal or educational use. Do not use to host pirated or copyrighted content.
