@@ -6,6 +6,9 @@ if (!isset($_GET['id'])) {
   exit;
 }
 
+header("Access-Control-Allow-Origin: *");
+header("Access-Control-Allow-Headers: *");
+
 $id = intval($_GET['id']);
 $sql = "SELECT * FROM movies WHERE id = $id";
 $result = $conn->query($sql);

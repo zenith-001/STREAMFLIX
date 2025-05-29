@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>🎬 StreamFlix Downloader</title>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.2/dist/ffmpeg.min.js"></script>
+  <style>
+    body {
+      background: radial-gradient(circle at top left, #1e293b, #0f172a);
+      font-family: 'Segoe UI', sans-serif;
+      color: #f8fafc;
+      margin: 0;
+      padding: 0;
+    }
+    .container {
+      max-width: 700px;
+      margin: 80px auto;
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(20px);
+      border-radius: 20px;
+      padding: 40px;
+      box-shadow: 0 0 40px rgba(0,0,0,0.4);
+      text-align: center;
+    }
+    input {
+      width: 90%;
+      padding: 15px;
+      border-radius: 10px;
+      border: none;
+      background: #334155;
+      color: white;
+      font-size: 16px;
+      margin-bottom: 20px;
+    }
+    button {
+      padding: 15px 30px;
+      font-size: 16px;
+      border: none;
+      border-radius: 10px;
+      background: linear-gradient(to right, #0ea5e9, #2563eb);
+      color: white;
+      cursor: pointer;
+      box-shadow: 0 4px 20px rgba(14, 165, 233, 0.4);
+      transition: all 0.3s ease;
+    }
+    button:hover {
+      background: linear-gradient(to right, #3b82f6, #0ea5e9);
+      transform: scale(1.05);
+    }
+    #log {
+      margin-top: 20px;
+      font-size: 14px;
+      max-height: 200px;
+      overflow-y: auto;
+      text-align: left;
+      background: rgba(255,255,255,0.05);
+      padding: 15px;
+      border-radius: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🚀 StreamFlix Movie Downloader</h1>
+    <input type="text" id="watchUrl" placeholder="Paste your watch.php?id=... URL" />
+    <br />
+    <button onclick="startDownload()">Start Download</button>
+    <div id="log">🔍 Waiting for URL...</div>
+  </div>
+
+  <script>
+    const { createFFmpeg, fetchFile } = FFmpeg;
+    const ffmpeg = createFFmpeg({ log: true });
+
+    async function startDownload() {
+      const log = msg => {
+        document.getElementById("log").innerHTML += `<br>📄 ${msg}`;
+      };
+
+      const url = document.getElementById("watchUrl").value.trim();
+      if (!url) return alert("Paste your StreamFlix video link");
+
+      document.getElementById("log").innerText = "⏳ Fetching video page...";
+
+      try {
+        const res = await fetch(url);
+        const html = await res.text();
+
+        const match = html.match(/['"]([^'"]+\.m3u8)['"]/);
+        if (!match) throw new Error(".m3u8 not found");
+
+        const m3u8Path = match[1];
+        const base = url.substring(0, url.lastIndexOf("/") + 1);
+        const m3u8Url = m3u8Path.startsWith("http") ? m3u8Path : base + m3u8Path;
+
+        log("🎯 M3U8 link found: " + m3u8Url);
+
+        // Load ffmpeg WASM
+        log("🧠 Loading FFmpeg...");
+        if (!ffmpeg.isLoaded()) await ffmpeg.load();
+
+        // Download the stream
+        log("⬇️ Downloading stream...");
+        const ts = await fetchFile(m3u8Url);
+        ffmpeg.FS('writeFile', 'input.m3u8', ts);
+
+        // Convert to MP4
+        log("🔄 Converting to MP4...");
+        await ffmpeg.run('-i', 'input.m3u8', '-c', 'copy', 'output.mp4');
+        const data = ffmpeg.FS('readFile', 'output.mp4');
+
+        // Trigger download
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([data.buffer], { type: 'video/mp4' }));
+        a.download = "streamflix_movie.mp4";
+        a.click();
+
+        log("✅ Done! Movie saved.");
+      } catch (err) {
+        log("❌ Error: " + err.message);
+      }
+    }
+  </script>
+</body>
+</html>
